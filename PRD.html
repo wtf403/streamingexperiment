@@ -1,0 +1,882 @@
+<!doctype html>
+<title>Window Stream Demo</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --bg: #0C0E11;
+    --surface: #141720;
+    --surface2: #1A1F2E;
+    --border: #1E2433;
+    --accent: #00D4FF;
+    --accent-dim: rgba(0, 212, 255, 0.12);
+    --accent-dim2: rgba(0, 212, 255, 0.06);
+    --text: #E8ECF4;
+    --muted: #5A6480;
+    --muted2: #3A4258;
+    --green: #00E5A0;
+    --yellow: #FFB347;
+    --red: #FF5A5A;
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #F0F2F7;
+      --surface: #FFFFFF;
+      --surface2: #E8EBF2;
+      --border: #D0D5E8;
+      --accent: #0088BB;
+      --accent-dim: rgba(0, 136, 187, 0.10);
+      --accent-dim2: rgba(0, 136, 187, 0.05);
+      --text: #0C0E11;
+      --muted: #6B7394;
+      --muted2: #B0B8D0;
+      --green: #00A870;
+      --yellow: #D4880A;
+      --red: #CC3333;
+    }
+  }
+
+  :root[data-theme="light"] {
+    --bg: #F0F2F7;
+    --surface: #FFFFFF;
+    --surface2: #E8EBF2;
+    --border: #D0D5E8;
+    --accent: #0088BB;
+    --accent-dim: rgba(0, 136, 187, 0.10);
+    --accent-dim2: rgba(0, 136, 187, 0.05);
+    --text: #0C0E11;
+    --muted: #6B7394;
+    --muted2: #B0B8D0;
+    --green: #00A870;
+    --yellow: #D4880A;
+    --red: #CC3333;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.65;
+    min-height: 100vh;
+  }
+
+  /* Layout */
+  .page { max-width: 900px; margin: 0 auto; padding: 0 28px 80px; }
+
+  /* Header */
+  .doc-header {
+    border-bottom: 1px solid var(--border);
+    padding: 48px 0 32px;
+    margin-bottom: 48px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .eyebrow {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .eyebrow::before {
+    content: '';
+    display: inline-block;
+    width: 18px;
+    height: 1px;
+    background: var(--accent);
+  }
+
+  h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: clamp(26px, 4vw, 38px);
+    font-weight: 700;
+    line-height: 1.15;
+    text-wrap: balance;
+    color: var(--text);
+    letter-spacing: -0.02em;
+  }
+
+  .doc-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 20px;
+    margin-top: 8px;
+  }
+
+  .meta-item {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .meta-item span { color: var(--text); }
+
+  /* Theme toggle */
+  .theme-btn {
+    position: fixed;
+    top: 20px;
+    right: 24px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    padding: 6px 10px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: color 0.15s, border-color 0.15s;
+    z-index: 100;
+  }
+  .theme-btn:hover { color: var(--text); border-color: var(--accent); }
+  .theme-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* Section */
+  section { margin-bottom: 52px; }
+
+  h2 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  h2::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  h3 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 10px;
+    letter-spacing: -0.01em;
+  }
+
+  p { color: var(--text); max-width: 72ch; margin-bottom: 12px; }
+  p:last-child { margin-bottom: 0; }
+
+  /* Architecture diagram */
+  .arch {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 28px 24px;
+    overflow-x: auto;
+  }
+
+  .arch-flow {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    flex-wrap: wrap;
+    row-gap: 12px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .arch-node {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 10px 14px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .arch-node.accent {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: var(--accent-dim2);
+  }
+
+  .arch-arrow {
+    font-size: 13px;
+    color: var(--muted);
+    padding: 0 8px;
+    flex-shrink: 0;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .arch-label {
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-top: 4px;
+    text-align: center;
+  }
+
+  .arch-col { display: flex; flex-direction: column; align-items: center; }
+
+  /* Two-col grid */
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+
+  @media (max-width: 600px) { .grid-2 { grid-template-columns: 1fr; } }
+
+  /* Cards */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 20px;
+  }
+
+  .card.highlight {
+    border-color: var(--accent);
+    background: var(--accent-dim2);
+  }
+
+  /* Status pill */
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 500;
+    padding: 3px 8px;
+    border-radius: 3px;
+    letter-spacing: 0.04em;
+  }
+
+  .pill.green { background: rgba(0, 229, 160, 0.12); color: var(--green); }
+  .pill.yellow { background: rgba(255, 179, 71, 0.12); color: var(--yellow); }
+  .pill.red { background: rgba(255, 90, 90, 0.12); color: var(--red); }
+  .pill.blue { background: var(--accent-dim); color: var(--accent); }
+
+  .pill::before {
+    content: '';
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+
+  /* Table */
+  .tbl-wrap { overflow-x: auto; border-radius: 6px; border: 1px solid var(--border); }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  thead { background: var(--surface2); }
+
+  th {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 12px 16px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+
+  td {
+    padding: 11px 16px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+    vertical-align: top;
+  }
+
+  tr:last-child td { border-bottom: none; }
+  tr:nth-child(even) td { background: var(--accent-dim2); }
+
+  /* Code */
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12.5px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 1px 5px;
+    color: var(--accent);
+  }
+
+  pre {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 20px;
+    overflow-x: auto;
+    margin-bottom: 0;
+  }
+
+  pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: 13px;
+    color: var(--text);
+    line-height: 1.7;
+  }
+
+  .code-comment { color: var(--muted); }
+  .code-key { color: var(--accent); }
+  .code-val { color: var(--green); }
+
+  /* List */
+  ul, ol { padding-left: 20px; }
+  li { margin-bottom: 6px; color: var(--text); }
+  li:last-child { margin-bottom: 0; }
+
+  /* Requirement rows */
+  .req-list { display: flex; flex-direction: column; gap: 10px; }
+
+  .req {
+    display: grid;
+    grid-template-columns: 28px 1fr auto;
+    gap: 12px;
+    align-items: start;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 14px 16px;
+  }
+
+  .req-id {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--muted);
+    padding-top: 2px;
+  }
+
+  .req-text { font-size: 14px; }
+  .req-text strong { font-weight: 600; display: block; margin-bottom: 3px; }
+  .req-text p { font-size: 13px; color: var(--muted); margin: 0; max-width: none; }
+
+  /* Milestone */
+  .milestones { display: flex; flex-direction: column; gap: 0; position: relative; }
+
+  .milestones::before {
+    content: '';
+    position: absolute;
+    left: 15px;
+    top: 24px;
+    bottom: 24px;
+    width: 1px;
+    background: var(--border);
+  }
+
+  .milestone {
+    display: grid;
+    grid-template-columns: 32px 1fr;
+    gap: 16px;
+    padding: 16px 0;
+    align-items: start;
+    position: relative;
+  }
+
+  .milestone-dot {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    border: 2px solid var(--border);
+    background: var(--surface);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--muted);
+    flex-shrink: 0;
+    position: relative;
+    z-index: 1;
+  }
+
+  .milestone.done .milestone-dot {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: var(--accent-dim2);
+  }
+
+  .milestone-body h3 { margin-bottom: 4px; }
+  .milestone-body p { font-size: 13px; color: var(--muted); max-width: none; }
+
+  /* Divider */
+  hr { border: none; border-top: 1px solid var(--border); margin: 40px 0; }
+
+  /* Constraint flag */
+  .flag {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--yellow);
+    border-radius: 4px;
+    padding: 12px 14px;
+    margin-bottom: 10px;
+  }
+
+  .flag-icon {
+    font-size: 14px;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+
+  .flag-text { font-size: 13.5px; }
+  .flag-text strong { font-weight: 600; }
+</style>
+
+<button class="theme-btn" onclick="
+  const r = document.documentElement;
+  const t = r.getAttribute('data-theme');
+  r.setAttribute('data-theme', t === 'light' ? 'dark' : 'light');
+  this.textContent = t === 'light' ? 'light' : 'dark';
+">light</button>
+
+<div class="page">
+
+  <header class="doc-header">
+    <div class="eyebrow">PRD · Dev Demo</div>
+    <h1>macOS Window ↔ Canvas<br>Streaming &amp; Interaction</h1>
+    <div class="doc-meta">
+      <div class="meta-item">status <span><span class="pill blue">draft</span></span></div>
+      <div class="meta-item">date <span>2026-08-27</span></div>
+      <div class="meta-item">author <span>streamingexperiment</span></div>
+      <div class="meta-item">scope <span>local dev demo</span></div>
+    </div>
+  </header>
+
+  <!-- Overview -->
+  <section>
+    <h2>Overview</h2>
+    <p>
+      A self-contained demo that streams live pixels from a real macOS window (Safari) into
+      a plain HTML <code>&lt;canvas&gt;</code> and routes all user input — clicks, keyboard,
+      scroll, drag, resize — back to that native window. The canvas is served to both an
+      Electron shell and a browser, with the capture pipeline running as a local server.
+      Verification is done end-to-end through MCP CDP + CUA tooling.
+    </p>
+    <p>
+      This is a developer proof-of-concept, not a product. The bar is: open Safari, stream it
+      into the canvas, click a link <em>on the canvas</em>, and Safari navigates.
+    </p>
+  </section>
+
+  <!-- Architecture -->
+  <section>
+    <h2>Architecture</h2>
+
+    <div class="arch" style="margin-bottom: 16px;">
+      <div class="arch-flow">
+        <div class="arch-col">
+          <div class="arch-node accent">Safari (or any app)</div>
+          <div class="arch-label">native window</div>
+        </div>
+        <div class="arch-arrow">→</div>
+        <div class="arch-col">
+          <div class="arch-node">ScreenCaptureKit</div>
+          <div class="arch-label">SCK stream</div>
+        </div>
+        <div class="arch-arrow">→</div>
+        <div class="arch-col">
+          <div class="arch-node">Swift capture helper</div>
+          <div class="arch-label">CMSampleBuffer → H.264</div>
+        </div>
+        <div class="arch-arrow">→</div>
+        <div class="arch-col">
+          <div class="arch-node">local server</div>
+          <div class="arch-label">WebSocket / HTTP</div>
+        </div>
+        <div class="arch-arrow">→</div>
+        <div class="arch-col">
+          <div class="arch-node accent">Electron + browser canvas</div>
+          <div class="arch-label">consumers</div>
+        </div>
+      </div>
+
+      <div style="margin-top: 24px; border-top: 1px solid var(--border); padding-top: 20px;">
+        <div class="arch-flow" style="justify-content: center;">
+          <div class="arch-col">
+            <div class="arch-node accent">canvas click/key/scroll</div>
+            <div class="arch-label">user input</div>
+          </div>
+          <div class="arch-arrow">→</div>
+          <div class="arch-col">
+            <div class="arch-node">input bridge</div>
+            <div class="arch-label">coord mapping</div>
+          </div>
+          <div class="arch-arrow">→</div>
+          <div class="arch-col">
+            <div class="arch-node">Accessibility + CGEvent</div>
+            <div class="arch-label">AX API</div>
+          </div>
+          <div class="arch-arrow">→</div>
+          <div class="arch-col">
+            <div class="arch-node accent">Safari (real window)</div>
+            <div class="arch-label">native event</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <h3>Capture pipe</h3>
+        <ul>
+          <li><code>SCContentFilter(desktopIndependentWindow:)</code> — window stays live if occluded</li>
+          <li>IOSurface frames → encode H.264 in-process</li>
+          <li>Crop to <code>contentRect</code> from <code>SCStreamFrameInfo</code></li>
+          <li>Push encoded chunks over WebSocket to local server</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Input pipe</h3>
+        <ul>
+          <li>Canvas pointer events → map to window screen coords</li>
+          <li><code>CGEventCreateMouseEvent</code> for click/drag/scroll</li>
+          <li><code>CGEventCreateKeyboardEvent</code> for key input</li>
+          <li>AX API for window move/resize</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- Components -->
+  <section>
+    <h2>Components</h2>
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Component</th>
+            <th>Language</th>
+            <th>Role</th>
+            <th>Key API</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>capture-helper</strong></td>
+            <td>Swift</td>
+            <td>SCK capture, encode, forward</td>
+            <td><code>SCStream</code>, <code>AVAssetWriter</code></td>
+          </tr>
+          <tr>
+            <td><strong>input-bridge</strong></td>
+            <td>Swift / ObjC</td>
+            <td>Translate canvas events → native events</td>
+            <td><code>CGEvent</code>, <code>AXUIElement</code></td>
+          </tr>
+          <tr>
+            <td><strong>local-server</strong></td>
+            <td>Node.js</td>
+            <td>WebSocket broker, frame relay, input relay</td>
+            <td><code>ws</code>, HTTP</td>
+          </tr>
+          <tr>
+            <td><strong>canvas-client</strong></td>
+            <td>HTML / JS</td>
+            <td>Decode video, render to <code>&lt;canvas&gt;</code>, capture events</td>
+            <td><code>VideoDecoder</code>, Canvas2D</td>
+          </tr>
+          <tr>
+            <td><strong>electron-shell</strong></td>
+            <td>Electron</td>
+            <td>Host the canvas client, IPC glue</td>
+            <td><code>BrowserWindow</code>, <code>ipcMain</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Requirements -->
+  <section>
+    <h2>Requirements</h2>
+    <div class="req-list">
+
+      <div class="req">
+        <div class="req-id">F1</div>
+        <div class="req-text">
+          <strong>Live pixel stream</strong>
+          <p>Canvas renders ≥24fps live frames from the target macOS window. Frame drop causes no crash; stream recovers automatically.</p>
+        </div>
+        <div><span class="pill blue">core</span></div>
+      </div>
+
+      <div class="req">
+        <div class="req-id">F2</div>
+        <div class="req-text">
+          <strong>Click passthrough</strong>
+          <p>Pointer down/up on canvas translates to a <code>CGEvent</code> mouse click at the correct screen position in the native window. Link navigation in Safari is the acceptance test.</p>
+        </div>
+        <div><span class="pill blue">core</span></div>
+      </div>
+
+      <div class="req">
+        <div class="req-id">F3</div>
+        <div class="req-text">
+          <strong>Keyboard passthrough</strong>
+          <p>Keydown/keyup on the canvas sends <code>CGEventCreateKeyboardEvent</code> to the target window. Text entry in a text field works.</p>
+        </div>
+        <div><span class="pill blue">core</span></div>
+      </div>
+
+      <div class="req">
+        <div class="req-id">F4</div>
+        <div class="req-text">
+          <strong>Scroll passthrough</strong>
+          <p>Wheel events on the canvas produce <code>kCGScrollWheelEvent</code> in the native window. Page scrolls in Safari.</p>
+        </div>
+        <div><span class="pill blue">core</span></div>
+      </div>
+
+      <div class="req">
+        <div class="req-id">F5</div>
+        <div class="req-text">
+          <strong>Window drag / resize from canvas</strong>
+          <p>Dragging the window chrome in the canvas moves the native window (AX <code>setPosition</code>). Corner drag resizes it.</p>
+        </div>
+        <div><span class="pill yellow">v1</span></div>
+      </div>
+
+      <div class="req">
+        <div class="req-id">F6</div>
+        <div class="req-text">
+          <strong>Dual consumer</strong>
+          <p>Same WebSocket stream is consumed by both Electron and a plain browser tab. Both render the same frame at the same time.</p>
+        </div>
+        <div><span class="pill blue">core</span></div>
+      </div>
+
+      <div class="req">
+        <div class="req-id">F7</div>
+        <div class="req-text">
+          <strong>MCP + CUA test coverage</strong>
+          <p>The demo is driven and verified by MCP CDP (browser automation) and CUA (computer-use agent). A test script opens Safari, streams it, clicks a link via the canvas, and asserts navigation succeeded.</p>
+        </div>
+        <div><span class="pill blue">core</span></div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- Coordinate mapping -->
+  <section>
+    <h2>Coordinate Mapping</h2>
+    <p>
+      The canvas shape and the native window live in two different coordinate spaces. Every input event requires this transform:
+    </p>
+    <pre><code><span class="code-comment">// canvas event → native screen point</span>
+<span class="code-key">const</span> scaleX = windowContentWidth / canvas.width;
+<span class="code-key">const</span> scaleY = windowContentHeight / canvas.height;
+
+<span class="code-key">const</span> screenX = windowOriginX + (canvasX * scaleX);
+<span class="code-key">const</span> screenY = windowOriginY + (canvasY * scaleY);
+
+<span class="code-comment">// send to input-bridge over WebSocket</span>
+ws.send(JSON.stringify({
+  type: <span class="code-val">'click'</span>,
+  x: screenX, y: screenY,
+  button: <span class="code-val">'left'</span>,
+  clickCount: <span class="code-val">1</span>
+}));</code></pre>
+    <p style="margin-top: 12px;">
+      Window origin and content size are tracked via Accessibility API and updated whenever the native window moves or resizes. The canvas client receives these as a side-channel message from the local server.
+    </p>
+  </section>
+
+  <!-- Constraints -->
+  <section>
+    <h2>Constraints &amp; Known Limits</h2>
+
+    <div class="flag">
+      <div class="flag-icon">⚠</div>
+      <div class="flag-text"><strong>Screen Recording permission required.</strong> The capture helper needs TCC Screen Recording grant. First launch will prompt.</div>
+    </div>
+
+    <div class="flag">
+      <div class="flag-icon">⚠</div>
+      <div class="flag-text"><strong>Accessibility permission required.</strong> The input bridge needs TCC Accessibility grant for <code>CGEvent</code> posting and AX window control.</div>
+    </div>
+
+    <div class="flag">
+      <div class="flag-icon">⚠</div>
+      <div class="flag-text"><strong>Minimized windows stop streaming.</strong> <code>SCContentFilter(desktopIndependentWindow:)</code> pauses on minimize. Keep the target window on an active Space (or a virtual display).</div>
+    </div>
+
+    <div class="flag">
+      <div class="flag-icon">⚠</div>
+      <div class="flag-text"><strong>DRM / protected content will not capture.</strong> Netflix and similar apps set <code>sharingType = .none</code>. Safari general browsing is fine.</div>
+    </div>
+
+    <div class="flag">
+      <div class="flag-icon">⚠</div>
+      <div class="flag-text"><strong>Retina scaling.</strong> IOSurface is at backing scale (2×). Divide by <code>contentScale</code> from <code>SCStreamFrameInfo</code> to get logical point sizes before coordinate mapping.</div>
+    </div>
+  </section>
+
+  <!-- Test plan -->
+  <section>
+    <h2>Test Plan — MCP CDP + CUA</h2>
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Step</th>
+            <th>Tool</th>
+            <th>Pass criterion</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>1</td>
+            <td>Launch capture helper, target Safari</td>
+            <td>CUA shell</td>
+            <td>Helper process running, no TCC errors</td>
+          </tr>
+          <tr>
+            <td>2</td>
+            <td>Start local server, open Electron + browser tab</td>
+            <td>CUA shell</td>
+            <td>Both consumers connect via WebSocket</td>
+          </tr>
+          <tr>
+            <td>3</td>
+            <td>Assert frames arriving in canvas</td>
+            <td>MCP CDP <code>evaluate</code></td>
+            <td><code>canvas.getImageData</code> returns non-black pixels within 2s</td>
+          </tr>
+          <tr>
+            <td>4</td>
+            <td>Navigate Safari to <code>example.com</code></td>
+            <td>CUA / AX</td>
+            <td>Safari address bar shows URL</td>
+          </tr>
+          <tr>
+            <td>5</td>
+            <td>Click the "More information..." link <em>on the canvas</em></td>
+            <td>MCP CDP <code>click</code> on canvas coords</td>
+            <td>Safari navigates to <code>iana.org</code></td>
+          </tr>
+          <tr>
+            <td>6</td>
+            <td>Type in Safari search field via canvas keyboard events</td>
+            <td>MCP CDP <code>type</code></td>
+            <td>Text appears in native Safari field</td>
+          </tr>
+          <tr>
+            <td>7</td>
+            <td>Scroll canvas → page scrolls in Safari</td>
+            <td>MCP CDP <code>scroll</code></td>
+            <td>Safari scroll position changes (verified via AX)</td>
+          </tr>
+          <tr>
+            <td>8</td>
+            <td>Drag window chrome on canvas → native window moves</td>
+            <td>CUA drag</td>
+            <td>Safari window origin changes by expected delta</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Milestones -->
+  <section>
+    <h2>Milestones</h2>
+    <div class="milestones">
+      <div class="milestone">
+        <div class="milestone-dot">1</div>
+        <div class="milestone-body">
+          <h3>Capture helper skeleton</h3>
+          <p>Swift CLI that streams a given <code>CGWindowID</code> over WebSocket as raw H.264 NAL units. Crops to contentRect. Logs fps and frame size.</p>
+        </div>
+      </div>
+      <div class="milestone">
+        <div class="milestone-dot">2</div>
+        <div class="milestone-body">
+          <h3>Canvas client decodes + renders</h3>
+          <p>Browser page uses <code>VideoDecoder</code> (WebCodecs) to decode the H.264 stream and paint frames to <code>&lt;canvas&gt;</code> at ≥24fps.</p>
+        </div>
+      </div>
+      <div class="milestone">
+        <div class="milestone-dot">3</div>
+        <div class="milestone-body">
+          <h3>Input bridge live</h3>
+          <p>Canvas pointer/keyboard/scroll events round-trip through local server → Swift input bridge → CGEvent → native window. Click test passes.</p>
+        </div>
+      </div>
+      <div class="milestone">
+        <div class="milestone-dot">4</div>
+        <div class="milestone-body">
+          <h3>Electron shell</h3>
+          <p>Electron window hosts the canvas client. Both Electron and browser tab consume the same stream simultaneously.</p>
+        </div>
+      </div>
+      <div class="milestone">
+        <div class="milestone-dot">5</div>
+        <div class="milestone-body">
+          <h3>MCP CDP + CUA test pass</h3>
+          <p>All 8 test steps in the test plan pass. Safari click-through on canvas is the headline result.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Out of scope -->
+  <section>
+    <h2>Out of Scope (this demo)</h2>
+    <ul>
+      <li>Multi-window tiling or infinite canvas layout</li>
+      <li>Remote streaming (everything is local)</li>
+      <li>Audio capture</li>
+      <li>Cursor synchronization (real macOS cursor is not synced to canvas pointer)</li>
+      <li>App injection or SIP workarounds</li>
+      <li>Windows other than Safari for initial testing</li>
+    </ul>
+  </section>
+
+</div>
+
+<script>
+  // Init theme button label
+  (function() {
+    const t = document.documentElement.getAttribute('data-theme');
+    const btn = document.querySelector('.theme-btn');
+    if (btn) btn.textContent = (t === 'dark') ? 'light' : 'dark';
+  })();
+</script>

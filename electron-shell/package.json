@@ -1,0 +1,15 @@
+{
+  "name": "electron-shell",
+  "version": "1.0.0",
+  "description": "Electron host for the canvas client",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "dependencies": {
+    "electron": "^44.0.0"
+  },
+  "allowScripts": {
+    "electron@36.4.0": true
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "stream-server",
+  "version": "1.0.0",
+  "description": "WebSocket broker: relays H264 frames from capture-helper to canvas clients, and input events back",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "ws": "8.18.0"
+  }
+}

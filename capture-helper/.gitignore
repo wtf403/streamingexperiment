@@ -1,0 +1,17 @@
+# Swift / Xcode
+.build/
+.swiftpm/
+*.o
+*.d
+*.xcuserdata/
+xcuserdata/
+*.xcworkspace/xcode/xcshareddata/
+*.resolved
+
+# DerivedData
+DerivedData/
+
+# macOS bundles
+*.app
+*.framework
+*.dylib
