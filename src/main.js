@@ -11,11 +11,12 @@
  *   4. Create the BrowserWindow
  */
 
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, ipcMain } = require('electron');
 const path  = require('path');
 const http  = require('http');
 const fs    = require('fs');
 const { spawn } = require('child_process');
+const liquidGlass = require('electron-liquid-glass');
 
 // ── Load .env from repo root (no extra dependency) ────────────────────────────
 try {
@@ -84,7 +85,7 @@ let mainWindow   = null;
 let clientBaseURL = null;
 
 function createWindow(url) {
-  const debug = Boolean(process.env.DEBUG_SHOW_WINDOW_FRAME);
+  const showDevTools = Boolean(process.env.DEBUG_SHOW_DEVTOOLS);
 
   // Size to whichever display the cursor is on at launch
   const { screen } = require('electron');
@@ -96,16 +97,35 @@ function createWindow(url) {
     width, height,
     x, y,
     title: 'Window Stream',
-    frame:       debug,
-    transparent: !debug,
-    hasShadow:   debug,
-    backgroundColor: debug ? '#0C0E11' : undefined,
+    titleBarStyle: 'hiddenInset',  // native traffic lights, no title bar
+    transparent: true,
+    hasShadow: false,
     fullscreenable: false,  // disable fullscreen (green button on macOS)
     resizable: true,        // but allow manual resizing
-    webPreferences: { nodeIntegration: false, contextIsolation: true },
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+    },
   });
+
   mainWindow.loadURL(url);
-  mainWindow.webContents.openDevTools({ mode: 'detach' });
+
+  // Apply native Liquid Glass after window is ready
+  mainWindow.once('ready-to-show', () => {
+    try {
+      liquidGlass.addView(mainWindow.getNativeWindowHandle(), {
+        cornerRadius: 20,
+        tintColor: { r: 255, g: 255, b: 255, a: 0.12 },
+      });
+    } catch (err) {
+      console.log('[main] Liquid Glass not available (macOS < 26 or error):', err.message);
+    }
+    mainWindow.show();
+  });
+
+  if (showDevTools) {
+    mainWindow.webContents.openDevTools({ mode: 'detach' });
+  }
   mainWindow.on('closed', () => { mainWindow = null; });
 }
 

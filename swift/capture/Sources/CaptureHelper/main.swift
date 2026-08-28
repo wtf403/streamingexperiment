@@ -240,6 +240,15 @@ final class WindowCapture: NSObject, SCStreamOutput {
         config.pixelFormat = kCVPixelFormatType_32BGRA
         config.showsCursor = false
 
+        // Flatten rounded-corner / shadow holes so H.264 cannot turn them black
+        config.shouldBeOpaque = true
+        let whiteBackground = CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)
+        config.backgroundColor = whiteBackground
+
+        if #available(macOS 14.0, *) {
+            config.ignoreShadowsSingleWindow = true
+        }
+
         encoder = H264Encoder(
             width: Int32(config.width),
             height: Int32(config.height),
