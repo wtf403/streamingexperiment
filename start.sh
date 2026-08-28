@@ -1,90 +1,70 @@
 #!/usr/bin/env bash
-# start.sh — launch all components of the window streaming demo
+# start.sh — build (if needed) and launch all components
 # Usage: ./start.sh [--window <id>] [--list]
-#
-# Starts:
-#   1. Node broker server       (server/index.js)
-#   2. Swift input-bridge       (input-bridge/.build/release/InputBridge)
-#   3. Swift capture-helper     (capture-helper/.build/release/CaptureHelper)
-#   4. Electron shell           (electron-shell/)
-#
-# Press Ctrl+C to stop everything.
-
 set -euo pipefail
 cd "$(dirname "$0")"
 
-# Kill any stale instances from a previous run
-pkill -f "node.*server/index.js"      2>/dev/null || true
-pkill -f "InputBridge"                2>/dev/null || true
-pkill -f "CaptureHelper"              2>/dev/null || true
-sleep 0.3
+CAPTURE_BIN="swift/capture/.build/release/CaptureHelper"
+INPUT_BIN="swift/input/.build/release/InputBridge"
 
-WINDOW_ARGS=""
+# ── --list shortcut ───────────────────────────────────────────────────────────
 if [[ "${1:-}" == "--list" ]]; then
-  echo "Listing available windows..."
-  ./capture-helper/.build/release/CaptureHelper --list 2>&1
+  [[ ! -f "$CAPTURE_BIN" ]] && swift build -c release --package-path swift/capture 2>&1
+  "$CAPTURE_BIN" --list
   exit 0
 fi
 
-for arg in "$@"; do
-  WINDOW_ARGS="$WINDOW_ARGS $arg"
+# ── build Swift if binaries are missing ──────────────────────────────────────
+if [[ ! -f "$CAPTURE_BIN" ]]; then
+  echo "[start] Building capture…"
+  swift build -c release --package-path swift/capture 2>&1
+fi
+if [[ ! -f "$INPUT_BIN" ]]; then
+  echo "[start] Building input-bridge…"
+  swift build -c release --package-path swift/input 2>&1
+fi
+
+# ── npm deps ──────────────────────────────────────────────────────────────────
+if [[ ! -d node_modules/electron ]]; then
+  echo "[start] Installing npm deps…"
+  npm install --silent
+fi
+
+# ── kill stale instances ──────────────────────────────────────────────────────
+pkill -f "CaptureHelper"  2>/dev/null || true
+pkill -f "InputBridge"    2>/dev/null || true
+sleep 0.3
+
+# ── collect --window args ─────────────────────────────────────────────────────
+WINDOW_ARGS=()
+while [[ $# -gt 0 ]]; do
+  WINDOW_ARGS+=("$1"); shift
 done
 
-# Cleanup on exit
+# ── cleanup on exit ───────────────────────────────────────────────────────────
 PIDS=()
 cleanup() {
   echo ""
-  echo "Stopping all components..."
-  for pid in "${PIDS[@]}"; do
-    kill "$pid" 2>/dev/null || true
-  done
+  echo "[start] Stopping…"
+  for pid in "${PIDS[@]}"; do kill "$pid" 2>/dev/null || true; done
   wait 2>/dev/null || true
-  echo "Done."
 }
 trap cleanup EXIT INT TERM
 
-# ── 1. Node server ───────────────────────────────────────────────────────────
-echo "[start] Starting Node broker..."
-(cd server && node index.js) &
+# ── start input-bridge ────────────────────────────────────────────────────────
+"$INPUT_BIN" &
+PIDS+=($!)
+sleep 0.2
+
+# ── start capture-helper ──────────────────────────────────────────────────────
+"$CAPTURE_BIN" "${WINDOW_ARGS[@]}" &
 PIDS+=($!)
 sleep 0.5
 
-# ── 2. Input bridge ──────────────────────────────────────────────────────────
-INPUT_BIN="./input-bridge/.build/release/InputBridge"
-if [[ ! -f "$INPUT_BIN" ]]; then
-  echo "[start] Building input-bridge..."
-  swift build -c release --package-path ./input-bridge 2>&1
-fi
-echo "[start] Starting input-bridge..."
-$INPUT_BIN &
-PIDS+=($!)
-sleep 0.3
-
-# ── 3. Capture helper ────────────────────────────────────────────────────────
-CAPTURE_BIN="./capture-helper/.build/release/CaptureHelper"
-if [[ ! -f "$CAPTURE_BIN" ]]; then
-  echo "[start] Building capture-helper..."
-  swift build -c release --package-path ./capture-helper 2>&1
-fi
-echo "[start] Starting capture-helper..."
-# shellcheck disable=SC2086
-$CAPTURE_BIN $WINDOW_ARGS &
-PIDS+=($!)
-sleep 1
-
-# ── 4. Electron shell ────────────────────────────────────────────────────────
-if [[ ! -d "electron-shell/node_modules/electron" ]]; then
-  echo "[start] Installing Electron..."
-  (cd electron-shell && npm install --silent)
-fi
-echo "[start] Starting Electron..."
-(cd electron-shell && npx electron .) &
+# ── start Electron (embeds broker + static server) ───────────────────────────
+npx electron . &
 PIDS+=($!)
 
-echo ""
-echo "All components running. Open http://127.0.0.1:8766 in a browser for web canvas."
-echo "Press Ctrl+C to stop."
-echo ""
-
-# Wait for any component to exit unexpectedly
+echo "[start] All running. Browser canvas: the Electron window."
+echo "[start] Press Ctrl+C to stop."
 wait -n 2>/dev/null || wait

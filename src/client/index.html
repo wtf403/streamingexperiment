@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Window Stream</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:      #0C0E11;
+    --surface: #141720;
+    --border:  #1E2433;
+    --accent:  #00D4FF;
+    --text:    #E8ECF4;
+    --muted:   #5A6480;
+    --green:   #00E5A0;
+    --red:     #FF5A5A;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    font-size: 12px;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+    user-select: none;
+  }
+
+  /* ── toolbar ── */
+  #toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 14px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  #status-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--muted); flex-shrink: 0; transition: background .2s;
+  }
+  #status-dot.connected { background: var(--green); }
+  #status-dot.error     { background: var(--red); }
+  #status-text { color: var(--muted); flex: 1; }
+  #fps-counter { color: var(--accent); min-width: 50px; }
+  #zoom-label  { color: var(--muted); min-width: 46px; text-align: right; }
+
+  #server-url {
+    background: var(--bg); border: 1px solid var(--border);
+    color: var(--text); font-family: inherit; font-size: 11px;
+    padding: 4px 8px; border-radius: 3px; width: 200px;
+  }
+  .btn {
+    background: var(--accent); color: var(--bg); border: none;
+    font-family: inherit; font-size: 11px; font-weight: 700;
+    padding: 4px 10px; border-radius: 3px; cursor: pointer;
+  }
+  .btn:hover { opacity: .85; }
+  .btn-ghost {
+    background: transparent; border: 1px solid var(--border);
+    color: var(--muted);
+  }
+  .btn-ghost:hover { border-color: var(--accent); color: var(--accent); opacity: 1; }
+
+  /* ── viewport ── */
+  #viewport {
+    flex: 1; overflow: hidden; position: relative;
+    background: #000;
+    cursor: default;
+    outline: none;
+  }
+
+  /* passthrough mode: real cursor hidden, canvas gets a ring highlight */
+  #viewport.passthrough {
+    cursor: none;
+  }
+  #viewport.passthrough #stream-canvas {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
+
+  #stream-canvas {
+    position: absolute;
+    top: 0; left: 0;
+    display: block;
+    image-rendering: pixelated;
+    transform-origin: 0 0;
+    will-change: transform;
+  }
+
+  /* virtual cursor shown in passthrough mode */
+  #vcursor {
+    position: absolute;
+    width: 14px; height: 14px;
+    pointer-events: none;
+    z-index: 20;
+    display: none;
+    transform: translate(-1px, -1px); /* tip at top-left */
+  }
+  #viewport.passthrough #vcursor { display: block; }
+
+  /* zoom hint toast */
+  #zoom-hint {
+    position: absolute; bottom: 14px; right: 14px;
+    background: rgba(12,14,17,.88); border: 1px solid var(--border);
+    border-radius: 4px; padding: 5px 9px; font-size: 11px;
+    color: var(--muted); pointer-events: none;
+    opacity: 0; transition: opacity .25s;
+    z-index: 10;
+  }
+  #zoom-hint.show { opacity: 1; }
+
+  /* passthrough badge */
+  #pt-badge {
+    position: absolute; top: 10px; left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,212,255,.15); border: 1px solid var(--accent);
+    border-radius: 4px; padding: 3px 10px; font-size: 10px;
+    color: var(--accent); pointer-events: none;
+    opacity: 0; transition: opacity .2s;
+    z-index: 10;
+  }
+  #pt-badge.show { opacity: 1; }
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap">
+</head>
+<body>
+
+<div id="toolbar">
+  <div id="status-dot"></div>
+  <span id="status-text">disconnected</span>
+  <span id="fps-counter">0 fps</span>
+  <span id="zoom-label">100%</span>
+  <button class="btn btn-ghost" id="zoom-fit-btn">fit</button>
+  <button class="btn btn-ghost" id="zoom-1x-btn">1×</button>
+  <input id="server-url" type="text" value="ws://127.0.0.1:8766" spellcheck="false">
+  <button class="btn" id="connect-btn">Connect</button>
+</div>
+
+<div id="viewport" tabindex="0">
+  <canvas id="stream-canvas"></canvas>
+
+  <!-- Virtual cursor SVG arrow shown in passthrough mode -->
+  <svg id="vcursor" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg">
+    <polygon points="1,1 1,12 4,9 7,13 9,12 6,8 10,8" fill="white" stroke="black" stroke-width="1"/>
+  </svg>
+
+  <div id="zoom-hint"></div>
+  <div id="pt-badge">click outside to exit</div>
+</div>
+
+<script>
+'use strict';
+
+// ── DOM ───────────────────────────────────────────────────────────────────────
+const canvas    = document.getElementById('stream-canvas');
+const ctx2d     = canvas.getContext('2d');
+const viewport  = document.getElementById('viewport');
+const dot       = document.getElementById('status-dot');
+const statusT   = document.getElementById('status-text');
+const fpsEl     = document.getElementById('fps-counter');
+const zoomLabel = document.getElementById('zoom-label');
+const vcursor   = document.getElementById('vcursor');
+const zoomHint  = document.getElementById('zoom-hint');
+const ptBadge   = document.getElementById('pt-badge');
+
+// ── WebSocket / decoder state ─────────────────────────────────────────────────
+let ws           = null;
+let decoder      = null;
+let windowMeta   = null;
+let pendingFrame = null;
+let codecConfigured = false;
+
+let frameCount = 0;
+setInterval(() => { fpsEl.textContent = frameCount + ' fps'; frameCount = 0; }, 1000);
+
+// ── Viewport transform ────────────────────────────────────────────────────────
+let zoom = 1, panX = 0, panY = 0;
+const MIN_ZOOM = 0.05, MAX_ZOOM = 8;
+
+function applyTransform() {
+  canvas.style.transform = `translate(${panX}px,${panY}px) scale(${zoom})`;
+  zoomLabel.textContent = Math.round(zoom * 100) + '%';
+}
+
+function fitToViewport() {
+  if (!canvas.width || !canvas.height) return;
+  const vw = viewport.clientWidth, vh = viewport.clientHeight;
+  zoom = Math.min(vw / canvas.width, vh / canvas.height);
+  panX = (vw - canvas.width  * zoom) / 2;
+  panY = (vh - canvas.height * zoom) / 2;
+  applyTransform();
+}
+
+function resetZoom() {
+  const vw = viewport.clientWidth, vh = viewport.clientHeight;
+  zoom = 1;
+  panX = (vw - canvas.width)  / 2;
+  panY = (vh - canvas.height) / 2;
+  applyTransform();
+}
+
+function zoomAt(px, py, factor) {
+  const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom * factor));
+  if (newZoom === zoom) return;
+  const cx = (px - panX) / zoom, cy = (py - panY) / zoom;
+  zoom = newZoom;
+  panX = px - cx * zoom;
+  panY = py - cy * zoom;
+  applyTransform();
+  showZoomHint();
+}
+
+let zoomHintTimer = null;
+function showZoomHint() {
+  zoomHint.textContent = Math.round(zoom * 100) + '%';
+  zoomHint.classList.add('show');
+  clearTimeout(zoomHintTimer);
+  zoomHintTimer = setTimeout(() => zoomHint.classList.remove('show'), 800);
+}
+
+// ── Coordinate mapping ────────────────────────────────────────────────────────
+function viewportToCanvas(vx, vy) {
+  return { cx: (vx - panX) / zoom, cy: (vy - panY) / zoom };
+}
+
+function canvasToScreen(cx, cy) {
+  if (!windowMeta) return null;
+  const scale = windowMeta.contentScale || 1;
+  return { x: windowMeta.originX + cx / scale, y: windowMeta.originY + cy / scale };
+}
+
+function eventToScreen(e) {
+  const rect = viewport.getBoundingClientRect();
+  const vx = e.clientX - rect.left, vy = e.clientY - rect.top;
+  const { cx, cy } = viewportToCanvas(vx, vy);
+  return canvasToScreen(cx, cy);
+}
+
+// Is viewport point (vx,vy) over the canvas?
+function isOverCanvas(vx, vy) {
+  const { cx, cy } = viewportToCanvas(vx, vy);
+  return cx >= 0 && cy >= 0 && cx <= canvas.width && cy <= canvas.height;
+}
+
+// Is viewport event over the title bar region?
+const TITLE_BAR_H = 28; // macOS title bar height in logical pts
+function isTitleBar(e) {
+  if (!windowMeta) return false;
+  const rect = viewport.getBoundingClientRect();
+  const { cy } = viewportToCanvas(e.clientX - rect.left, e.clientY - rect.top);
+  return (cy / (windowMeta.contentScale || 1)) < TITLE_BAR_H;
+}
+
+// ── Passthrough (idle) mode ───────────────────────────────────────────────────
+// When active: all pointer/keyboard events go to the real app.
+// When inactive: trackpad gestures pan/zoom the canvas.
+let passthrough = false;
+
+function enterPassthrough() {
+  passthrough = true;
+  viewport.classList.add('passthrough');
+  ptBadge.classList.add('show');
+  viewport.focus();
+}
+
+function exitPassthrough() {
+  passthrough = false;
+  viewport.classList.remove('passthrough');
+  ptBadge.classList.remove('show');
+  vcursor.style.display = 'none';
+}
+
+// ── WebSocket ─────────────────────────────────────────────────────────────────
+function connect() {
+  const url = document.getElementById('server-url').value.trim();
+  if (ws) { ws.close(); ws = null; }
+  setStatus('connecting…', '');
+  ws = new WebSocket(url);
+  ws.binaryType = 'arraybuffer';
+  ws.onopen    = () => { setStatus('connected', 'connected'); initDecoder(); };
+  ws.onmessage = (e) => typeof e.data === 'string' ? handleMeta(e.data) : handleFrame(new Uint8Array(e.data));
+  ws.onerror   = () => setStatus('error', 'error');
+  ws.onclose   = () => { setStatus('disconnected', ''); ws = null; };
+}
+document.getElementById('connect-btn').addEventListener('click', connect);
+
+function setStatus(t, cls) { statusT.textContent = t; dot.className = cls; }
+
+function sendInput(obj) {
+  if (ws?.readyState !== WebSocket.OPEN) return;
+  if (windowMeta?.windowID && obj.windowID == null) obj.windowID = windowMeta.windowID;
+  ws.send(JSON.stringify(obj));
+}
+
+// ── Meta ──────────────────────────────────────────────────────────────────────
+function handleMeta(text) {
+  try {
+    const m = JSON.parse(text);
+    if (m.type !== 'meta') return;
+    windowMeta = m;
+  } catch {}
+}
+
+// ── H.264 decode ──────────────────────────────────────────────────────────────
+function initDecoder() {
+  if (decoder) { try { decoder.close(); } catch {} decoder = null; }
+  codecConfigured = false;
+  decoder = new VideoDecoder({
+    output: (frame) => { if (pendingFrame) pendingFrame.close(); pendingFrame = frame; },
+    error: (e) => { console.warn('[decoder]', e); codecConfigured = false; setTimeout(initDecoder, 300); },
+  });
+  decoder.configure({ codec: 'avc1.640028', optimizeForLatency: true, hardwareAcceleration: 'prefer-hardware' });
+}
+
+function splitNalUnits(data) {
+  const units = []; let start = -1;
+  for (let i = 0; i < data.length; i++) {
+    if (i+3 < data.length && data[i]===0 && data[i+1]===0 && data[i+2]===0 && data[i+3]===1) {
+      if (start >= 0) units.push(data.subarray(start, i)); start = i+4; i+=3;
+    } else if (i+2 < data.length && data[i]===0 && data[i+1]===0 && data[i+2]===1) {
+      if (start >= 0) units.push(data.subarray(start, i)); start = i+3; i+=2;
+    }
+  }
+  if (start >= 0 && start < data.length) units.push(data.subarray(start));
+  return units;
+}
+
+function buildAvccDescription(sps, pps) {
+  const buf = new Uint8Array(11 + sps.length + pps.length); let o = 0;
+  buf[o++]=1; buf[o++]=sps[1]; buf[o++]=sps[2]; buf[o++]=sps[3];
+  buf[o++]=0xff; buf[o++]=0xe1;
+  buf[o++]=(sps.length>>8)&0xff; buf[o++]=sps.length&0xff;
+  buf.set(sps,o); o+=sps.length; buf[o++]=1;
+  buf[o++]=(pps.length>>8)&0xff; buf[o++]=pps.length&0xff;
+  buf.set(pps,o); return buf.buffer;
+}
+
+function spsToCodecString(sps) {
+  if (sps.length < 4) return 'avc1.640028';
+  return `avc1.${sps[1].toString(16).padStart(2,'0')}${sps[2].toString(16).padStart(2,'0')}${sps[3].toString(16).padStart(2,'0')}`;
+}
+
+let firstFrame = true;
+function handleFrame(data) {
+  if (!decoder || decoder.state === 'closed') return;
+  if (decoder.decodeQueueSize > 2) return;
+  const nals = splitNalUnits(data);
+  let sps = null, pps = null; const vcl = [];
+  for (const nal of nals) {
+    if (!nal.length) continue;
+    const t = nal[0] & 0x1f;
+    if (t===7) sps=nal; else if (t===8) pps=nal; else vcl.push(nal);
+  }
+  if (sps && pps) {
+    try {
+      decoder.configure({ codec: spsToCodecString(sps), description: buildAvccDescription(sps,pps),
+        optimizeForLatency: true, hardwareAcceleration: 'prefer-hardware' });
+      codecConfigured = true;
+    } catch(e) { return; }
+  }
+  if (!codecConfigured || !vcl.length) return;
+  let total = 0; for (const u of vcl) total += 4+u.length;
+  const avcc = new Uint8Array(total); let off = 0;
+  for (const u of vcl) {
+    const l=u.length; avcc[off++]=(l>>24)&0xff; avcc[off++]=(l>>16)&0xff;
+    avcc[off++]=(l>>8)&0xff; avcc[off++]=l&0xff; avcc.set(u,off); off+=l;
+  }
+  const isKey = vcl.some(u => (u[0]&0x1f)===5);
+  try { decoder.decode(new EncodedVideoChunk({ type: isKey?'key':'delta', timestamp: performance.now()*1000, data: avcc })); }
+  catch(e) { codecConfigured = false; }
+}
+
+// ── Render loop ───────────────────────────────────────────────────────────────
+function drawPendingFrame() {
+  if (!pendingFrame) return;
+  const frame = pendingFrame; pendingFrame = null;
+  const w = frame.displayWidth, h = frame.displayHeight;
+  if (canvas.width !== w || canvas.height !== h) {
+    canvas.width = w; canvas.height = h;
+    if (firstFrame) { firstFrame = false; fitToViewport(); }
+  }
+  ctx2d.drawImage(frame, 0, 0);
+  frame.close();
+  frameCount++;
+}
+(function renderLoop() { drawPendingFrame(); requestAnimationFrame(renderLoop); })();
+
+// ── Pan state (used only when NOT in passthrough) ─────────────────────────────
+let isPanning = false, panStartX = 0, panStartY = 0, panStartPanX = 0, panStartPanY = 0;
+
+// ── Window-move (title bar drag) ──────────────────────────────────────────────
+let isMovingWindow = false, moveStartScreen = null, moveStartMouse = null;
+
+// ── Pointer events ────────────────────────────────────────────────────────────
+
+// Move virtual cursor
+function updateVCursor(e) {
+  if (!passthrough) return;
+  const rect = viewport.getBoundingClientRect();
+  vcursor.style.left = (e.clientX - rect.left) + 'px';
+  vcursor.style.top  = (e.clientY - rect.top)  + 'px';
+  vcursor.style.display = 'block';
+}
+
+viewport.addEventListener('wheel', (e) => {
+  e.preventDefault();
+
+  if (passthrough) {
+    // In passthrough: forward scroll to real app
+    const pt = eventToScreen(e);
+    if (pt) sendInput({ type: 'scroll', x: pt.x, y: pt.y, deltaX: e.deltaX, deltaY: e.deltaY });
+    return;
+  }
+
+  const rect = viewport.getBoundingClientRect();
+  const vx = e.clientX - rect.left, vy = e.clientY - rect.top;
+
+  // Two-finger trackpad scroll (deltaMode 0, non-zero deltaX or small deltaY) = pan
+  // Pinch-to-zoom arrives as ctrlKey + wheel
+  if (e.ctrlKey) {
+    // Pinch gesture = zoom toward cursor
+    const factor = 1 - e.deltaY * 0.01;
+    zoomAt(vx, vy, factor);
+    return;
+  }
+
+  // Regular two-finger scroll = pan
+  panX -= e.deltaX;
+  panY -= e.deltaY;
+  applyTransform();
+}, { passive: false });
+
+viewport.addEventListener('mousedown', (e) => {
+  e.preventDefault();
+  viewport.focus();
+
+  const rect = viewport.getBoundingClientRect();
+  const vx = e.clientX - rect.left, vy = e.clientY - rect.top;
+  const overCanvas = isOverCanvas(vx, vy);
+
+  if (passthrough) {
+    if (!overCanvas) {
+      // Click outside canvas → exit passthrough
+      exitPassthrough();
+      return;
+    }
+    // In passthrough: forward all clicks to real app
+    if (isTitleBar(e)) {
+      // Title bar drag starts window move
+      isMovingWindow = true;
+      moveStartMouse  = { x: e.screenX, y: e.screenY };
+      moveStartScreen = windowMeta ? { x: windowMeta.originX, y: windowMeta.originY } : null;
+      return;
+    }
+    const pt = eventToScreen(e);
+    if (pt) sendInput({ type: 'mousedown', x: pt.x, y: pt.y, button: e.button, modifiers: activeMods(e) });
+    return;
+  }
+
+  // Not in passthrough:
+  if (overCanvas) {
+    // Click on canvas → enter passthrough
+    enterPassthrough();
+    // Forward this click too
+    if (isTitleBar(e)) {
+      isMovingWindow = true;
+      moveStartMouse  = { x: e.screenX, y: e.screenY };
+      moveStartScreen = windowMeta ? { x: windowMeta.originX, y: windowMeta.originY } : null;
+      return;
+    }
+    const pt = eventToScreen(e);
+    if (pt) sendInput({ type: 'mousedown', x: pt.x, y: pt.y, button: e.button, modifiers: activeMods(e) });
+    return;
+  }
+
+  // Drag on empty background = pan
+  isPanning = true;
+  panStartX = e.clientX; panStartY = e.clientY;
+  panStartPanX = panX; panStartPanY = panY;
+  viewport.style.cursor = 'grabbing';
+});
+
+viewport.addEventListener('mousemove', (e) => {
+  updateVCursor(e);
+
+  if (isMovingWindow && moveStartScreen) {
+    const dx = e.screenX - moveStartMouse.x;
+    const dy = e.screenY - moveStartMouse.y;
+    sendInput({ type: 'move', windowID: windowMeta.windowID,
+                x: moveStartScreen.x + dx, y: moveStartScreen.y + dy });
+    return;
+  }
+
+  if (isPanning) {
+    panX = panStartPanX + (e.clientX - panStartX);
+    panY = panStartPanY + (e.clientY - panStartY);
+    applyTransform();
+    return;
+  }
+
+  if (passthrough) {
+    const pt = eventToScreen(e);
+    if (pt) sendInput({ type: 'mousemove', x: pt.x, y: pt.y });
+  }
+});
+
+viewport.addEventListener('mouseup', (e) => {
+  if (isMovingWindow) { isMovingWindow = false; return; }
+  if (isPanning) { isPanning = false; viewport.style.cursor = ''; return; }
+  if (!passthrough) return;
+  const pt = eventToScreen(e);
+  if (pt) sendInput({ type: 'mouseup', x: pt.x, y: pt.y, button: e.button, modifiers: activeMods(e) });
+});
+
+viewport.addEventListener('click', (e) => {
+  if (isPanning || isMovingWindow) return;
+  if (!passthrough) return; // click-to-enter handled in mousedown
+  if (isTitleBar(e)) return;
+  const rect = viewport.getBoundingClientRect();
+  const vx = e.clientX - rect.left, vy = e.clientY - rect.top;
+  if (!isOverCanvas(vx, vy)) return;
+  const pt = eventToScreen(e);
+  if (pt) sendInput({ type: 'click', x: pt.x, y: pt.y, button: e.button, clickCount: 1, modifiers: activeMods(e) });
+});
+
+viewport.addEventListener('dblclick', (e) => {
+  if (!passthrough) return;
+  const pt = eventToScreen(e);
+  if (pt) sendInput({ type: 'click', x: pt.x, y: pt.y, button: e.button, clickCount: 2, modifiers: activeMods(e) });
+});
+
+viewport.addEventListener('mouseleave', () => {
+  if (isPanning) { isPanning = false; viewport.style.cursor = ''; }
+  vcursor.style.display = 'none';
+});
+
+viewport.addEventListener('contextmenu', (e) => e.preventDefault());
+
+// ── Keyboard ──────────────────────────────────────────────────────────────────
+// Escape always exits passthrough
+document.addEventListener('keydown', (e) => {
+  if (e.code === 'Escape') { exitPassthrough(); return; }
+
+  if (passthrough) {
+    // Forward all keys to real app
+    e.preventDefault();
+    sendInput({ type: 'keydown', keyCode: e.keyCode, key: e.key, modifiers: activeMods(e) });
+    return;
+  }
+
+  // Canvas navigation shortcuts (only when not in passthrough)
+  if (document.activeElement?.tagName === 'INPUT') return;
+  if (e.code === 'KeyF') { fitToViewport(); return; }
+  if (e.code === 'Digit0' || e.code === 'Numpad0') { resetZoom(); return; }
+  if (e.code === 'Equal' || e.code === 'NumpadAdd') {
+    zoomAt(viewport.clientWidth/2, viewport.clientHeight/2, 1.1); return;
+  }
+  if (e.code === 'Minus' || e.code === 'NumpadSubtract') {
+    zoomAt(viewport.clientWidth/2, viewport.clientHeight/2, 0.9); return;
+  }
+});
+
+document.addEventListener('keyup', (e) => {
+  if (!passthrough) return;
+  if (e.code === 'Escape') return; // handled above
+  sendInput({ type: 'keyup', keyCode: e.keyCode, key: e.key, modifiers: activeMods(e) });
+});
+
+// ── Zoom buttons ──────────────────────────────────────────────────────────────
+document.getElementById('zoom-fit-btn').addEventListener('click', fitToViewport);
+document.getElementById('zoom-1x-btn').addEventListener('click', resetZoom);
+
+function activeMods(e) {
+  const m = [];
+  if (e.shiftKey) m.push('shift');
+  if (e.ctrlKey)  m.push('ctrl');
+  if (e.altKey)   m.push('alt');
+  if (e.metaKey)  m.push('meta');
+  return m;
+}
+
+viewport.setAttribute('tabindex', '0');
+connect();
+</script>
+</body>
+</html>

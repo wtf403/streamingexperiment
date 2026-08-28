@@ -97,11 +97,17 @@ final class H264Encoder {
         )
         guard let s else { fputs("[capture] Failed to create VTCompressionSession\n", stderr); return }
         session = s
-        VTSessionSetProperty(s, key: kVTCompressionPropertyKey_RealTime, value: kCFBooleanTrue)
+        VTSessionSetProperty(s, key: kVTCompressionPropertyKey_RealTime,            value: kCFBooleanTrue)
         VTSessionSetProperty(s, key: kVTCompressionPropertyKey_AllowFrameReordering, value: kCFBooleanFalse)
-        VTSessionSetProperty(s, key: kVTCompressionPropertyKey_AverageBitRate, value: NSNumber(value: 3_000_000))
-        VTSessionSetProperty(s, key: kVTCompressionPropertyKey_MaxKeyFrameInterval, value: NSNumber(value: fps * 2))
-        VTSessionSetProperty(s, key: kVTCompressionPropertyKey_ExpectedFrameRate, value: NSNumber(value: fps))
+        // 20 Mbps average — enough headroom for 3520×2848 @ 60fps without frame drops
+        VTSessionSetProperty(s, key: kVTCompressionPropertyKey_AverageBitRate,       value: NSNumber(value: 20_000_000))
+        // Allow 40 Mbps burst over 1 second (each element is a CFNumber pair: bytes, seconds)
+        let dataRateLimits: [NSNumber] = [NSNumber(value: 5_000_000), NSNumber(value: 1)]
+        VTSessionSetProperty(s, key: kVTCompressionPropertyKey_DataRateLimits,       value: dataRateLimits as CFArray)
+        VTSessionSetProperty(s, key: kVTCompressionPropertyKey_MaxKeyFrameInterval,  value: NSNumber(value: fps * 2))
+        VTSessionSetProperty(s, key: kVTCompressionPropertyKey_ExpectedFrameRate,    value: NSNumber(value: fps))
+        // Prefer hardware encoder (Apple Silicon VT H.264 encoder)
+        VTSessionSetProperty(s, key: kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder, value: kCFBooleanTrue)
         VTCompressionSessionPrepareToEncodeFrames(s)
     }
 
@@ -224,18 +230,20 @@ final class WindowCapture: NSObject, SCStreamOutput {
 
         let filter = SCContentFilter(desktopIndependentWindow: window)
         let config = SCStreamConfiguration()
-        // Use logical pixel size (SCK scales internally)
-        let scale: Int = 2
+        // Capture at 1× logical resolution — halves pixel count vs 2×,
+        // cuts encode/decode load significantly without visible quality loss.
+        let scale: Int = 1
         config.width  = max(1, Int(window.frame.width)  * scale)
         config.height = max(1, Int(window.frame.height) * scale)
-        config.minimumFrameInterval = CMTime(value: 1, timescale: 30)
-        config.queueDepth = 5
+        config.minimumFrameInterval = CMTime(value: 1, timescale: 60)
+        config.queueDepth = 2
         config.pixelFormat = kCVPixelFormatType_32BGRA
         config.showsCursor = false
 
         encoder = H264Encoder(
             width: Int32(config.width),
-            height: Int32(config.height)
+            height: Int32(config.height),
+            fps: 60
         )
         encoder?.onEncodedData = { [weak self] data in
             self?.broker.send(data)
@@ -299,7 +307,7 @@ final class WindowCapture: NSObject, SCStreamOutput {
         if let scale = attachments[.scaleFactor] as? Double { contentScale = scale }
 
         guard let imageBuffer = sb.imageBuffer else { return }
-        pts = CMTime(value: CMTimeValue(frameCount), timescale: 30)
+        pts = CMTime(value: CMTimeValue(frameCount), timescale: 60)
 
         encoder?.encode(imageBuffer, pts: pts)
 

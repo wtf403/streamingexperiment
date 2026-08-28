@@ -1,0 +1,19 @@
+{
+  "name": "streamingexperiment",
+  "version": "1.0.0",
+  "description": "Stream any macOS window into Electron via H.264/WebCodecs",
+  "private": true,
+  "main": "src/main.js",
+  "scripts": {
+    "start":      "npm run build:swift && electron .",
+    "dev":        "electron .",
+    "list":       "swift/capture/.build/release/CaptureHelper --list",
+    "build:swift": "npm run build:capture && npm run build:input",
+    "build:capture": "swift build -c release --package-path swift/capture",
+    "build:input":   "swift build -c release --package-path swift/input"
+  },
+  "dependencies": {
+    "electron": "^44.0.0",
+    "ws": "8.18.0"
+  }
+}
