@@ -318,6 +318,12 @@ final class WindowCapture: NSObject, SCStreamOutput {
 
     func handleStreamStop(error: Error) {
         fputs("[capture] Stream stopped: \(error)\n", stderr)
+        // Auto-restart after brief backoff
+        Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            fputs("[capture] Restarting capture for window \(targetWindowID)...\n", stderr)
+            try? await self.start()
+        }
     }
 
     private func refreshMeta() {

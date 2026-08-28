@@ -17,6 +17,16 @@ const http  = require('http');
 const fs    = require('fs');
 const { spawn } = require('child_process');
 
+// ── Load .env from repo root (no extra dependency) ────────────────────────────
+try {
+  const envPath = path.join(__dirname, '..', '.env');
+  const lines   = fs.readFileSync(envPath, 'utf8').split(/\r?\n/);
+  for (const line of lines) {
+    const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*?)\s*$/);
+    if (m && !(m[1] in process.env)) process.env[m[1]] = m[2];
+  }
+} catch { /* no .env — fine */ }
+
 // ── 1. Start broker ───────────────────────────────────────────────────────────
 require('./broker');
 
@@ -38,7 +48,7 @@ function launchHelper(name, bin, args = []) {
   return proc;
 }
 
-let captureProc = null;
+let captureProcs = [];
 let inputProc   = null;
 
 // ── 3. Static HTTP server ─────────────────────────────────────────────────────
@@ -74,13 +84,28 @@ let mainWindow   = null;
 let clientBaseURL = null;
 
 function createWindow(url) {
+  const debug = Boolean(process.env.DEBUG_SHOW_WINDOW_FRAME);
+
+  // Size to whichever display the cursor is on at launch
+  const { screen } = require('electron');
+  const cursor = screen.getCursorScreenPoint();
+  const display = screen.getDisplayNearestPoint(cursor);
+  const { x, y, width, height } = display.workArea;
+
   mainWindow = new BrowserWindow({
-    width: 1280, height: 900,
+    width, height,
+    x, y,
     title: 'Window Stream',
-    backgroundColor: '#0C0E11',
+    frame:       debug,
+    transparent: !debug,
+    hasShadow:   debug,
+    backgroundColor: debug ? '#0C0E11' : undefined,
+    fullscreenable: false,  // disable fullscreen (green button on macOS)
+    resizable: true,        // but allow manual resizing
     webPreferences: { nodeIntegration: false, contextIsolation: true },
   });
   mainWindow.loadURL(url);
+  mainWindow.webContents.openDevTools({ mode: 'detach' });
   mainWindow.on('closed', () => { mainWindow = null; });
 }
 
@@ -88,9 +113,16 @@ app.whenReady().then(() => {
   // Launch helpers after app is ready — they inherit the foreground session
   inputProc = launchHelper('input-bridge', 'swift/input/.build/release/InputBridge');
 
-  // Read window ID from env or use default
-  const windowArg = process.env.CAPTURE_WINDOW ? ['--window', process.env.CAPTURE_WINDOW] : [];
-  captureProc = launchHelper('capture', 'swift/capture/.build/release/CaptureHelper', windowArg);
+  // Launch capture helpers for each window with staggered startup
+  const windowsEnv = process.env.CAPTURE_WINDOWS || process.env.CAPTURE_WINDOW || '61';
+  const windowIDs = windowsEnv.split(',').map(s => s.trim()).filter(s => /^\d+$/.test(s));
+
+  windowIDs.forEach((wid, idx) => {
+    setTimeout(() => {
+      const proc = launchHelper('capture', 'swift/capture/.build/release/CaptureHelper', ['--window', wid]);
+      if (proc) captureProcs.push({ wid, proc });
+    }, idx * 800);
+  });
 
   startStaticServer((url) => {
     clientBaseURL = url;
@@ -107,6 +139,6 @@ app.on('activate', () => {
 });
 
 app.on('before-quit', () => {
-  captureProc?.kill();
+  for (const { proc } of captureProcs) proc?.kill();
   inputProc?.kill();
 });
